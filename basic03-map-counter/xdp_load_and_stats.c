@@ -97,7 +97,7 @@ struct record {
 };
 
 struct stats_record {
-	struct record stats[1]; /* Assignment#2: Hint */
+	struct record stats[XDP_ACTION_MAX]; /* Assignment#2: Hint */
 };
 
 static double calc_period(struct record *r, struct record *p)
@@ -121,15 +121,16 @@ static void stats_print(struct stats_record *stats_rec,
 	double pps; /* packets per sec */
 	__u64 bytes;
 	double mbps; /* Mbits per sec */
+	__u32 key;
 
 	/* Assignment#2: Print other XDP actions stats  */
-	{
+	for (key = 0; key < XDP_ACTION_MAX; key++) {
 		char *fmt = "%-12s %'11lld pkts (%'10.0f pps)"
 			" %'11lld Kbytes (%'6.0f Mbits/s)"
 			" period:%f\n";
-		const char *action = action2str(XDP_PASS);
-		rec  = &stats_rec->stats[0];
-		prev = &stats_prev->stats[0];
+		const char *action = action2str(key);
+		rec  = &stats_rec->stats[key];
+		prev = &stats_prev->stats[key];
 
 		period = calc_period(rec, prev);
 		if (period == 0)
@@ -196,9 +197,11 @@ static void stats_collect(int map_fd, __u32 map_type,
 			  struct stats_record *stats_rec)
 {
 	/* Assignment#2: Collect other XDP actions stats  */
-	__u32 key = XDP_PASS;
+	__u32 key;
 
-	map_collect(map_fd, map_type, key, &stats_rec->stats[0]);
+	for (key = 0; key < XDP_ACTION_MAX; key++) {
+		map_collect(map_fd, map_type, key, &stats_rec->stats[key]);
+	}
 }
 
 // XXX-shorer what if the original attach program exited?
