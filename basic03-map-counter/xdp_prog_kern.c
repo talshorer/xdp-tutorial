@@ -49,6 +49,7 @@ int  xdp_stats1_func(struct xdp_md *ctx)
          * Assignment#3: Avoid the atomic operation
          * - Hint there is a map type named BPF_MAP_TYPE_PERCPU_ARRAY
          */
+	lock_xadd(&rec->rx_bytes, ctx->data_end - ctx->data);
 
 	return XDP_PASS;
 }
