@@ -193,6 +193,8 @@ static void stats_collect(int map_fd, __u32 map_type,
 	map_collect(map_fd, map_type, key, &stats_rec->stats[0]);
 }
 
+// XXX-shorer what if the original attach program exited?
+//		Can I still get the stats?
 static void stats_poll(int map_fd, __u32 map_type, int interval)
 {
 	struct stats_record prev, record = { 0 };
