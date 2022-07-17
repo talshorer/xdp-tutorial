@@ -27,12 +27,40 @@ struct hdr_cursor {
  * (h_proto for Ethernet, nexthdr for IPv6), for ICMP it is the ICMP type field.
  * All return values are in host byte order.
  */
+struct vlan_hdr {
+	__be16	h_vlan_TCI;
+	__be16	h_vlan_encapsulated_proto;
+};
+
+static __always_inline int parse_vlan(struct hdr_cursor *nh, void *data_end)
+{
+	struct vlan_hdr *vlan = nh->pos;
+	int hdrsize = sizeof(*vlan);
+
+	if (vlan + 1 > data_end)
+		return -1;
+
+	nh->pos += hdrsize;
+
+	return vlan->h_vlan_encapsulated_proto; /* network-byte-order */
+}
+
+static __always_inline int proto_is_vlan(__u16 h_proto)
+{
+	return !!(h_proto == bpf_htons(ETH_P_8021Q) ||
+		h_proto == bpf_htons(ETH_P_8021AD));
+}
+
+#define VLAN_MAX_DEPTH 10
+
 static __always_inline int parse_ethhdr(struct hdr_cursor *nh,
 					void *data_end,
 					struct ethhdr **ethhdr)
 {
 	struct ethhdr *eth = nh->pos;
 	int hdrsize = sizeof(*eth);
+	int proto;
+	int i;
 
 	/* Byte-count bounds check; check if current pointer + size of header
 	 * is after data_end.
@@ -43,7 +71,15 @@ static __always_inline int parse_ethhdr(struct hdr_cursor *nh,
 	nh->pos += hdrsize;
 	*ethhdr = eth;
 
-	return eth->h_proto; /* network-byte-order */
+	proto = eth->h_proto;
+	#pragma unroll
+	for (i = 0; i < VLAN_MAX_DEPTH; i++) {
+		if (!proto_is_vlan(proto))
+			break;
+		proto = parse_vlan(nh, data_end);
+	}
+
+	return proto; /* network-byte-order */
 }
 
 /* Assignment 2: Implement and use this */
