@@ -67,11 +67,24 @@ static __always_inline int parse_ip6hdr(struct hdr_cursor *nh,
 }
 
 /* Assignment 3: Implement and use this */
-/*static __always_inline int parse_icmp6hdr(struct hdr_cursor *nh,
+static __always_inline int parse_icmp6hdr(struct hdr_cursor *nh,
 					  void *data_end,
 					  struct icmp6hdr **icmp6hdr)
 {
-}*/
+	struct icmp6hdr *icmp6 = nh->pos;
+	int hdrsize = sizeof(*icmp6);
+
+	/* Byte-count bounds check; check if current pointer + size of header
+	 * is after data_end.
+	 */
+	if (icmp6 + 1 > data_end)
+		return -1;
+
+	nh->pos += hdrsize;
+	*icmp6hdr = icmp6;
+
+	return icmp6->icmp6_sequence; /* network-byte-order */
+}
 
 SEC("xdp_packet_parser")
 int  xdp_parser_func(struct xdp_md *ctx)
@@ -80,6 +93,7 @@ int  xdp_parser_func(struct xdp_md *ctx)
 	void *data = (void *)(long)ctx->data;
 	struct ethhdr *eth;
 	struct ipv6hdr *ip6;
+	struct icmp6hdr *icmp6;
 
 	/* Default action XDP_PASS, imply everything we couldn't parse, or that
 	 * we don't want to deal with, we just pass up the stack and let the
@@ -104,6 +118,11 @@ int  xdp_parser_func(struct xdp_md *ctx)
 
 	nh_type = parse_ip6hdr(&nh, data_end, &ip6);
 	if (nh_type != IPPROTO_ICMPV6) {
+		goto out;
+	}
+
+	nh_type = parse_icmp6hdr(&nh, data_end, &icmp6);
+	if ((bpf_ntohs(nh_type) & 1) == 0) {
 		goto out;
 	}
 
