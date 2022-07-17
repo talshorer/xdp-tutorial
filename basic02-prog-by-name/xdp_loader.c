@@ -118,6 +118,11 @@ struct bpf_object *__load_bpf_and_xdp_attach(struct config *cfg)
 	 * process exit.
 	 */
 
+	// XXX-shorer what actually frees them? is it when I close some fd
+	//		associated with `bpf_object`? is there explicit API to
+	//		free them?
+	// XXX-shorer Is it `xdp_link_detach`? Seems unlikely by its arguments.
+
 	/* Find a matching BPF prog section name */
 	bpf_prog = bpf_object__find_program_by_title(bpf_obj, cfg->progsec);
 	if (!bpf_prog) {
