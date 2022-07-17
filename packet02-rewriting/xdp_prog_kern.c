@@ -1,8 +1,11 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 #include <linux/bpf.h>
+#include <linux/if_ether.h>
 #include <linux/in.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
+#include <linux/ipv6.h>
+#include <linux/udp.h>
 
 // The parsing helper functions from the packet01 lesson have moved here
 #include "../common/parsing_helpers.h"
@@ -57,6 +60,40 @@ static __always_inline int vlan_tag_push(struct xdp_md *ctx,
 SEC("xdp_port_rewrite")
 int xdp_port_rewrite_func(struct xdp_md *ctx)
 {
+	void *data_end = (void *)(long)ctx->data_end;
+	void *data = (void *)(long)ctx->data;
+	struct hdr_cursor nh = { .pos = data };
+	int rc;
+	struct ethhdr *eth;
+	struct ipv6hdr *ip6;
+
+	rc = parse_ethhdr(&nh, data_end, &eth);
+	if (rc < 0)
+		return XDP_PASS;
+	if (eth->h_proto != bpf_htons(ETH_P_IPV6))
+		return XDP_PASS;
+
+	rc = parse_ip6hdr(&nh, data_end, &ip6);
+	if (rc < 0)
+		return XDP_PASS;
+	if (ip6->nexthdr == IPPROTO_TCP) {
+		struct tcphdr *tcp;
+
+		rc = parse_tcphdr(&nh, data_end, &tcp);
+		if (rc < 0)
+			return XDP_PASS;
+
+		tcp->dest = bpf_htons(bpf_ntohs(tcp->dest) - 1);
+	} else if (ip6->nexthdr == IPPROTO_UDP) {
+		struct udphdr *udp;
+
+		rc = parse_udphdr(&nh, data_end, &udp);
+		if (rc < 0)
+			return XDP_PASS;
+
+		udp->dest = bpf_htons(bpf_ntohs(udp->dest) - 1);
+	}
+
 	return XDP_PASS;
 }
 
