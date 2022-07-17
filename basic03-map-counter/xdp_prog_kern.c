@@ -9,7 +9,7 @@
  * - The idea is to keep stats per (enum) xdp_action
  */
 struct bpf_map_def SEC("maps") xdp_stats_map = {
-	.type        = BPF_MAP_TYPE_ARRAY,
+	.type        = BPF_MAP_TYPE_PERCPU_ARRAY,
 	.key_size    = sizeof(__u32),
 	.value_size  = sizeof(struct datarec),
 	.max_entries = XDP_ACTION_MAX,
@@ -39,17 +39,14 @@ int  xdp_stats1_func(struct xdp_md *ctx)
 	if (!rec)
 		return XDP_ABORTED;
 
-	/* Multiple CPUs can access data record. Thus, the accounting needs to
-	 * use an atomic operation.
-	 */
-	lock_xadd(&rec->rx_packets, 1);
+	rec->rx_packets++;
         /* Assignment#1: Add byte counters
          * - Hint look at struct xdp_md *ctx (copied below)
          *
          * Assignment#3: Avoid the atomic operation
          * - Hint there is a map type named BPF_MAP_TYPE_PERCPU_ARRAY
          */
-	lock_xadd(&rec->rx_bytes, ctx->data_end - ctx->data);
+	rec->rx_bytes += ctx->data_end - ctx->data;
 
 	return XDP_PASS;
 }
