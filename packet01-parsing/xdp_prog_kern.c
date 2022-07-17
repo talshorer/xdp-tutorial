@@ -5,6 +5,8 @@
 #include <linux/in.h>
 #include <linux/if_ether.h>
 #include <linux/if_packet.h>
+#include <linux/ip.h>
+#include <linux/icmp.h>
 #include <linux/ipv6.h>
 #include <linux/icmpv6.h>
 #include <bpf/bpf_helpers.h>
@@ -119,7 +121,48 @@ static __always_inline int parse_icmp6hdr(struct hdr_cursor *nh,
 	nh->pos += hdrsize;
 	*icmp6hdr = icmp6;
 
+	if (icmp6->icmp6_type != ICMPV6_ECHO_REQUEST)
+		return -1;
+
 	return icmp6->icmp6_sequence; /* network-byte-order */
+}
+
+static __always_inline int parse_ip4hdr(struct hdr_cursor *nh,
+					void *data_end)
+{
+	struct iphdr *ip4 = nh->pos;
+	int hdrsize = sizeof(*ip4);
+
+	if (ip4 + 1 > data_end)
+		return -1;
+
+	hdrsize = ip4->ihl * 4;
+	if (nh->pos + hdrsize > data_end)
+		return -1;
+
+	nh->pos += hdrsize;
+
+	return ip4->protocol;
+}
+
+static __always_inline int parse_icmp4hdr(struct hdr_cursor *nh,
+					  void *data_end)
+{
+	struct icmphdr *icmp4 = nh->pos;
+	int hdrsize = sizeof(*icmp4);
+
+	/* Byte-count bounds check; check if current pointer + size of header
+	 * is after data_end.
+	 */
+	if (icmp4 + 1 > data_end)
+		return -1;
+
+	nh->pos += hdrsize;
+
+	if (icmp4->type != ICMP_ECHO)
+		return -1;
+
+	return icmp4->un.echo.sequence; /* network-byte-order */
 }
 
 SEC("xdp_packet_parser")
@@ -149,16 +192,27 @@ int  xdp_parser_func(struct xdp_md *ctx)
 	 * header type in the packet correct?), and bounds checking.
 	 */
 	nh_type = parse_ethhdr(&nh, data_end, &eth);
-	if (nh_type != bpf_htons(ETH_P_IPV6))
-		goto out;
+	if (nh_type == bpf_htons(ETH_P_IPV6)) {
+		nh_type = parse_ip6hdr(&nh, data_end, &ip6);
+		if (nh_type != IPPROTO_ICMPV6) {
+			goto out;
+		}
 
-	nh_type = parse_ip6hdr(&nh, data_end, &ip6);
-	if (nh_type != IPPROTO_ICMPV6) {
-		goto out;
-	}
+		nh_type = parse_icmp6hdr(&nh, data_end, &icmp6);
+		if ((bpf_ntohs(nh_type) & 1) == 0) {
+			goto out;
+		}
+	} else if (nh_type == bpf_htons(ETH_P_IP)) {
+		nh_type = parse_ip4hdr(&nh, data_end);
+		if (nh_type != IPPROTO_ICMP) {
+			goto out;
+		}
 
-	nh_type = parse_icmp6hdr(&nh, data_end, &icmp6);
-	if ((bpf_ntohs(nh_type) & 1) == 0) {
+		nh_type = parse_icmp4hdr(&nh, data_end);
+		if ((bpf_ntohs(nh_type) & 1) == 0) {
+			goto out;
+		}
+	} else {
 		goto out;
 	}
 
