@@ -67,6 +67,57 @@ static const struct option_wrapper long_options[] = {
 const char *pin_basedir =  "/sys/fs/bpf";
 const char *map_name    =  "xdp_stats_map";
 
+static int reuse_map(struct bpf_object *bpf_obj, const char *pin_dir)
+{
+	struct bpf_map *new_map;
+	int old_map_fd, new_map_fd;
+	struct bpf_map_info old_info = {};
+	struct bpf_map_info new_info = {};
+	struct bpf_map_info map_expect = {};
+	__u32 info_len = sizeof(new_info);
+	int err;
+
+	new_map = bpf_object__find_map_by_name(bpf_obj, map_name);
+	if (!new_map) {
+		fprintf(stderr, "ERR: No map in cur object\n");
+		return EXIT_FAIL_BPF;
+	}
+
+	new_map_fd = bpf_map__fd(new_map);
+	err = bpf_obj_get_info_by_fd(new_map_fd, &new_info, &info_len);
+	if (err) {
+		fprintf(stderr, "ERR: %s() can't get info - %s\n",
+			__func__,  strerror(errno));
+		return EXIT_FAIL_BPF;
+	}
+
+	old_map_fd = open_bpf_map_file(pin_dir, map_name, &old_info);
+	if (old_map_fd < 0) {
+		fprintf(stderr, "ERR: Failed to open old map\n");
+		return EXIT_FAIL_BPF;
+	}
+
+	map_expect.key_size = new_info.key_size;
+	map_expect.value_size = new_info.value_size;
+	map_expect.max_entries = new_info.max_entries;
+	err = check_map_fd_info(&old_info, &map_expect);
+	if (err) {
+		fprintf(stderr, "ERR: Old and new info don't match\n");
+		return err;
+	}
+
+	err = bpf_map__reuse_fd(new_map, old_map_fd);
+	if (err) {
+		fprintf(stderr, "ERR: Reuse map - %s\n", strerror(errno));
+		return EXIT_FAIL_BPF;
+	}
+
+	if (verbose)
+		printf(" - Reusing prev maps in %s/\n", pin_dir);
+
+	return 0;
+}
+
 /* Pinning maps under /sys/fs/bpf in subdir */
 int pin_maps_in_bpf_object(struct bpf_object *bpf_obj, const char *subdir)
 {
@@ -89,6 +140,9 @@ int pin_maps_in_bpf_object(struct bpf_object *bpf_obj, const char *subdir)
 
 	/* Existing/previous XDP prog might not have cleaned up */
 	if (access(map_filename, F_OK ) != -1 ) {
+		err = reuse_map(bpf_obj, pin_dir);
+		if (!err)
+			return 0;
 		if (verbose)
 			printf(" - Unpinning (remove) prev maps in %s/\n",
 			       pin_dir);
@@ -100,6 +154,7 @@ int pin_maps_in_bpf_object(struct bpf_object *bpf_obj, const char *subdir)
 			return EXIT_FAIL_BPF;
 		}
 	}
+
 	if (verbose)
 		printf(" - Pinning maps in %s/\n", pin_dir);
 
