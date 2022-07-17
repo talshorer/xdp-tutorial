@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0 */
+#include <linux/in6.h>
 #include <stddef.h>
 #include <linux/bpf.h>
 #include <linux/in.h>
@@ -46,11 +47,24 @@ static __always_inline int parse_ethhdr(struct hdr_cursor *nh,
 }
 
 /* Assignment 2: Implement and use this */
-/*static __always_inline int parse_ip6hdr(struct hdr_cursor *nh,
+static __always_inline int parse_ip6hdr(struct hdr_cursor *nh,
 					void *data_end,
 					struct ipv6hdr **ip6hdr)
 {
-}*/
+	struct ipv6hdr *ip6 = nh->pos;
+	int hdrsize = sizeof(*ip6);
+
+	/* Byte-count bounds check; check if current pointer + size of header
+	 * is after data_end.
+	 */
+	if (ip6 + 1 > data_end)
+		return -1;
+
+	nh->pos += hdrsize;
+	*ip6hdr = ip6;
+
+	return ip6->nexthdr;
+}
 
 /* Assignment 3: Implement and use this */
 /*static __always_inline int parse_icmp6hdr(struct hdr_cursor *nh,
@@ -65,6 +79,7 @@ int  xdp_parser_func(struct xdp_md *ctx)
 	void *data_end = (void *)(long)ctx->data_end;
 	void *data = (void *)(long)ctx->data;
 	struct ethhdr *eth;
+	struct ipv6hdr *ip6;
 
 	/* Default action XDP_PASS, imply everything we couldn't parse, or that
 	 * we don't want to deal with, we just pass up the stack and let the
@@ -86,6 +101,11 @@ int  xdp_parser_func(struct xdp_md *ctx)
 	nh_type = parse_ethhdr(&nh, data_end, &eth);
 	if (nh_type != bpf_htons(ETH_P_IPV6))
 		goto out;
+
+	nh_type = parse_ip6hdr(&nh, data_end, &ip6);
+	if (nh_type != IPPROTO_ICMPV6) {
+		goto out;
+	}
 
 	/* Assignment additions go below here */
 
